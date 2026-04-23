@@ -1,34 +1,28 @@
-def preprocess_data(df):
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import numpy as np
+
+def apply_metric_filter(df, metric):
     df = df.copy()
 
-    # Remover zeros nas métricas principais
-    df = df[
-        (df['Total Impacted'] > 0) &
-        (df["Total Damage ('000 US$)"] > 0) &
-        (df['Number of Days'] > 0)
-    ]
+    if metric in ['Total Impacted', "Total Damage ('000 US$)", 'Number of Days']:
+        df = df[df[metric] > 0]
 
-    # Regra crítica: Fatality Rate inválido
-    df = df[
-        (df['Fatality Rate'] > 0) &
-        (df['Total Deaths'] > 0)
-    ]
+    elif metric == 'Fatality Rate':
+        df = df[
+            (df['Fatality Rate'] > 0) &
+            (df['Total Deaths'] > 0) &
+            (df['Total Impacted'] > 0)
+        ]
 
     return df
 
-import streamlit as st
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 
 # Load
 @st.cache_data
 def load_data():
     return pd.read_csv("data/prepared_public_emdat_2026.csv")
-
-data = load_data()
-data = preprocess_data(data)
-
 most_important_cols = [
     'Total Impacted',
     "Total Damage ('000 US$)",
@@ -36,27 +30,55 @@ most_important_cols = [
     'Fatality Rate'
 ]
 
+data = load_data()
+for col in most_important_cols:
+    data = apply_metric_filter(data, col)
+
+
 st.sidebar.header("Filtros Globais")
 
-years = st.sidebar.multiselect("Ano", sorted(data['Start Year'].dropna().unique()))
-months = st.sidebar.multiselect("Mês", sorted(data['Start Month'].dropna().unique()))
-countries = st.sidebar.multiselect("País", data['Country'].dropna().unique())
-regions = st.sidebar.multiselect("Região", data['Region'].dropna().unique())
-subregions = st.sidebar.multiselect("Subregião", data['Subregion'].dropna().unique())
+global_filters = {
+    "Ano": "Start Year",
+    "Mês": "Start Month",
+    "Região": "Region",
+    "Subregião": "Subregion",
+    "País": "Country",
+    "Grupo de Desastre": "Disaster Group",
+    "Subgrupo de Desastre": "Disaster Subgroup",
+    "Tipo de Desastre": "Disaster Type",
+    "Subtipo de Desastre": "Disaster Subtype"
+}
 
 filtered_data = data.copy()
 
+for label, col in global_filters.items():
+    options = sorted(data[col].dropna().unique())
+    selected = st.sidebar.multiselect(label, options)
+    if selected:
+        filtered_data = filtered_data[filtered_data[col].isin(selected)]
 
-if years:
-    filtered_data = filtered_data[filtered_data['Start Year'].isin(years)]
-if months:
-    filtered_data = filtered_data[filtered_data['Start Month'].isin(months)]
-if countries:
-    filtered_data = filtered_data[filtered_data['Country'].isin(countries)]
-if regions:
-    filtered_data = filtered_data[filtered_data['Region'].isin(regions)]
-if subregions:
-    filtered_data = filtered_data[filtered_data['Subregion'].isin(subregions)]
+
+st.header("Resumo")
+
+selected_metric_card = st.selectbox(
+    "Selecione a métrica para resumo",
+    most_important_cols,
+    key="card_metric"
+)
+
+card_data = apply_metric_filter(filtered_data, selected_metric_card)
+
+total_value = 0
+
+if selected_metric_card == 'Fatality Rate':
+    total_value = card_data[selected_metric_card].mean()
+else:
+    total_value = card_data[selected_metric_card].sum()
+
+st.metric(
+    label=f"Total de {selected_metric_card}",
+    value=f"{total_value:,.2f}" if isinstance(total_value, (float)) else total_value
+)
 
 st.header("Distribuição")
 
@@ -65,18 +87,21 @@ metric = st.selectbox("Métrica", most_important_cols)
 
 plot_data = filtered_data[filtered_data[metric] > 0]
 
-fig, ax = plt.subplots()
-
 if chart_type == "Histograma":
-    sns.histplot(plot_data[metric], bins=50, kde=True, log_scale=True, ax=ax)
-    ax.set_title(f'Distribution of {metric}')
 
+    plot_data = filtered_data[filtered_data[metric] > 0].copy()
+    plot_data[f'log_{metric}'] = np.log10(plot_data[metric])
+
+    fig = px.histogram(
+        plot_data,
+        x=f'log_{metric}',
+        title=f'Distribuição de {metric} (log10)'
+    )
+    fig.update_xaxes(title=f'log10({metric})')
 else:
-    sns.boxplot(y=plot_data[metric], ax=ax)
-    ax.set_yscale('log')
-    ax.set_title(f'Boxplot of {metric}')
+    fig = px.box(plot_data, y=metric, title=f'Boxplot of {metric}', log_y=True)
 
-st.pyplot(fig)
+st.plotly_chart(fig)
 st.write(plot_data[metric].describe())
 
 
@@ -91,13 +116,11 @@ corr_data = filtered_data[
 
 correlation = corr_data[x_col].corr(corr_data[y_col])
 
-fig, ax = plt.subplots()
-ax.scatter(corr_data[x_col], corr_data[y_col], alpha=0.5)
-ax.set_xscale('log')
-ax.set_yscale('log')
-ax.set_title(f'Correlation: {correlation:.3f}')
+fig = px.scatter(corr_data, x=x_col, y=y_col, title=f'Correlation: {correlation:.3f}')
+fig.update_xaxes(type="log")
+fig.update_yaxes(type="log")
 
-st.pyplot(fig)
+st.plotly_chart(fig)
 st.write(f"Coeficiente de correlação: {correlation:.4f}")
 
 
@@ -149,11 +172,10 @@ else:
     pivot = filtered_data.groupby([y_col, x_col])[metric_option] \
         .mean().unstack(fill_value=0)
 
+num_records = len(filtered_data)
 
-fig, ax = plt.subplots(figsize=(12, 8))
 
-sns.heatmap(pivot, cmap="viridis", ax=ax)
+fig = px.imshow(pivot, color_continuous_scale="viridis", title=f"{metric_option} by {y_level} vs {x_level}")
+fig.add_annotation(text=f"Número de registros: {num_records}", xref="paper", yref="paper", x=0.5, y=1.1, showarrow=False)
 
-ax.set_title(f"{metric_option} by {y_level} vs {x_level}")
-
-st.pyplot(fig)
+st.plotly_chart(fig)
