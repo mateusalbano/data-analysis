@@ -1,3 +1,5 @@
+
+
 # region Imports
 import streamlit as st
 import pandas as pd
@@ -40,102 +42,48 @@ most_important_cols = [
 ]
 
 filter_keys = [
-    "sel_regions", "sel_subregions", "sel_countries", 
-    "sel_groups", "sel_subgroups", "sel_types", 
-    "sel_subtypes", "sel_years", "sel_months"
+    "Region", "Subregion", "Country", 
+    "Disaster Group", "Disaster Subgroup", "Disaster Type", 
+    "Disaster Subtype", "Start Year", "Start Month"
 ]
 
-# Funções para filtragem dos dados
 for key in filter_keys:
     if key not in st.session_state:
         st.session_state[key] = []
 
-# 2. Função para resetar os filtros
+
 def reset_filters():
     for key in filter_keys:
         st.session_state[key] = []
-    return filtered_data
 
 
-# region Sidebar - Filtros
-with st.sidebar:
-    st.sidebar.header("Filtros Globais")
+def apply_all_filters(data):
+    result = data.copy()
 
-    filtered_data = full_data.copy()
+    for key in filter_keys:
+        if key in st.session_state and st.session_state[key]:  # ✅ Só filtra se houver seleção
+            result = result[result[key].isin(st.session_state[key])]
+    
+    return result
 
-    # Botão Resetar Filtros
-    st.sidebar.button("Reiniciar Filtros", on_click=reset_filters)
-
-    # Região
-    regions = sorted(filtered_data["Region"].dropna().unique())
-    selected_regions = st.sidebar.multiselect("Região", regions, key="sel_regions")
-
-    if selected_regions:
-        filtered_data = filtered_data[filtered_data["Region"].isin(selected_regions)]
-
-    # Subregião
-    subregions = sorted(filtered_data["Subregion"].dropna().unique())
-    selected_subregions = st.sidebar.multiselect("Subregião", subregions, key="sel_subregions")
-
-    if selected_subregions:
-        filtered_data = filtered_data[filtered_data["Subregion"].isin(selected_subregions)]
-
-    # País
-    countries = sorted(filtered_data["Country"].dropna().unique())
-    selected_countries = st.sidebar.multiselect("País", countries, key="sel_countries")
-
-    if selected_countries:
-        filtered_data = filtered_data[filtered_data["Country"].isin(selected_countries)]
-
-    # Grupo
-    groups = sorted(filtered_data["Disaster Group"].dropna().unique())
-    selected_groups = st.sidebar.multiselect("Grupo de Desastre", groups, key="sel_groups")
-
-    if selected_groups:
-        filtered_data = filtered_data[filtered_data["Disaster Group"].isin(selected_groups)]
-
-    # Subgrupo
-    subgroups = sorted(filtered_data["Disaster Subgroup"].dropna().unique())
-    selected_subgroups = st.sidebar.multiselect("Subgrupo de Desastre", subgroups, key="sel_subgroups")
-
-    if selected_subgroups:
-        filtered_data = filtered_data[filtered_data["Disaster Subgroup"].isin(selected_subgroups)]
-
-    # Tipo
-    types = sorted(filtered_data["Disaster Type"].dropna().unique())
-    selected_types = st.sidebar.multiselect("Tipo de Desastre", types, key="sel_types")
-
-    if selected_types:
-        filtered_data = filtered_data[filtered_data["Disaster Type"].isin(selected_types)]
-
-    # Subtipo
-    subtypes = sorted(filtered_data["Disaster Subtype"].dropna().unique())
-    selected_subtypes = st.sidebar.multiselect("Subtipo de Desastre", subtypes, key="sel_subtypes")
-
-    if selected_subtypes:
-        filtered_data = filtered_data[filtered_data["Disaster Subtype"].isin(selected_subtypes)]
-
-    # Ano
-    years = sorted(filtered_data["Start Year"].dropna().unique())
-    selected_years = st.sidebar.multiselect("Ano", years, key="sel_years")
-
-    if selected_years:
-        filtered_data = filtered_data[filtered_data["Start Year"].isin(selected_years)]
-
-    # Mês
-    months = sorted(filtered_data["Start Month"].dropna().unique())
-    selected_months = st.sidebar.multiselect("Mês", months, key="sel_months")
-
-    if selected_months:
-        filtered_data = filtered_data[filtered_data["Start Month"].isin(selected_months)]
+def build_sidebar():
 
 
-# region Aba Análise Variáveis
+    with st.sidebar:
+        st.sidebar.header("Filtros Globais")
+        # Botão Resetar Filtros
+        st.sidebar.button("Reiniciar Filtros", on_click=reset_filters)
 
-aba_variavel, aba_correlacao, aba_heatmap = st.tabs(["📄 Análise de Variáveis", "📈 Correlação Entre Variáveis", "📊  Heatmap"])
+        for key in filter_keys:
+            options = sorted(full_data[key].dropna().unique())
+            st.sidebar.multiselect(key, options, key=key)
 
 
-# region Card Resumo
+build_sidebar()
+
+aba_variavel, aba_correlacao, aba_heatmap = st.tabs(["Análise de Variáveis", "Correlação Entre Variáveis", "Heatmap"])
+filtered_data = apply_all_filters(full_data)
+
 with aba_variavel:
     st.subheader("Resumo")
 
@@ -161,17 +109,22 @@ with aba_variavel:
     )
 
 
-# region Histograma
     st.subheader("Distribuição")
 
-    chart_type = st.selectbox("Tipo de gráfico", ["Histograma", "Boxplot"])
-    metric = st.selectbox("Métrica", most_important_cols)
-
-    scale_type = st.radio(
-        "Escala",
-        ["Normal", "Logarítmica"],
-        horizontal=True
-    )
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        chart_type = st.selectbox("Tipo de gráfico", ["Histograma", "Boxplot"])
+    
+    with col2:
+        metric = st.selectbox("Métrica", most_important_cols)
+    
+    with col3:
+        scale_type = st.selectbox(
+            "Escala da Métrica",
+            ["Normal", "Logarítmica"],
+            key="dist_scale"
+        )
 
     plot_data = apply_metric_filter(filtered_data, metric)
 
@@ -206,22 +159,24 @@ with aba_variavel:
     st.write(plot_data[metric].describe())
 
 
-# region Aba Correlação
 with aba_correlacao:
     corr_options = most_important_cols + ["Start Year", "Start Month"]
 
-    scale_options = ["Linear", "Log"]
-
-    x_scale = st.selectbox("Escala eixo X", scale_options, key="x_scale")
-    y_scale = st.selectbox("Escala eixo Y", scale_options, key="y_scale")
-
-    # region Heatmap Correlação
     st.subheader("Heatmap Correlação")    
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        heatmap_scale = st.selectbox(
+            "Filtrar zeros para heatmap (escala Log)?",
+            ["Não", "Sim"],
+            key="heatmap_scale"
+        )
+    
     heatmap_cols = corr_options
     heatmap_data = filtered_data.copy()
     heatmap_data = heatmap_data[heatmap_cols]
 
-    if y_scale == "Log" or x_scale == "Log":
+    if heatmap_scale == "Sim":
         heatmap_data = heatmap_data[(heatmap_data > 0).all(axis=1)]
 
     heatmap_corr = heatmap_data.corr()
@@ -234,11 +189,24 @@ with aba_correlacao:
 
     st.plotly_chart(fig_heatmap)
 
-    # region Correlação
-    corr_data = filtered_data.copy()
-    x_col = st.selectbox("Eixo X", corr_options, key="corr_x")
-    y_col = st.selectbox("Eixo Y", corr_options, key="corr_y")
+    st.subheader("Análise de Correlação")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        x_col = st.selectbox("Variável X", corr_options, key="corr_x")
+    
+    with col2:
+        x_scale = st.selectbox("Escala X", ["Linear", "Log"], key="x_scale")
+    
+    with col3:
+        y_col = st.selectbox("Variável Y", corr_options, key="corr_y")
+    
+    with col4:
+        y_scale = st.selectbox("Escala Y", ["Linear", "Log"], key="y_scale")
 
+    corr_data = filtered_data.copy()
+    
     if x_scale == "Log":
         corr_data = corr_data[corr_data[x_col] > 0]
     if y_scale == "Log":
@@ -267,8 +235,57 @@ with aba_correlacao:
     st.plotly_chart(fig)
     st.write(f"Coeficiente de correlação: {correlation:.4f}")
 
+    st.subheader("Heatmap Customizado - Correlação por Escala")
+    
+    st.write("Selecione a escala (Linear/Log) para cada variável e visualize a matriz de correlação:")
+    
+    scale_selection = {}
+    
+    cols_per_row = 3
+    cols = st.columns(cols_per_row)
+    
+    for idx, var in enumerate(corr_options):
+        col_idx = idx % cols_per_row
+        with cols[col_idx]:
+            scale_selection[var] = st.selectbox(
+                f"Escala - {var}",
+                ["Linear", "Log"],
+                key=f"custom_scale_{var}"
+            )
+        
+        if (idx + 1) % cols_per_row == 0 and idx < len(corr_options) - 1:
+            cols = st.columns(cols_per_row)
+    
+    custom_heatmap_data = filtered_data.copy()
+    custom_heatmap_data = custom_heatmap_data[corr_options].copy()
+    
+    for var in corr_options:
+        if scale_selection[var] == "Log":
+            custom_heatmap_data = custom_heatmap_data[custom_heatmap_data[var] > 0]
+    
+    for var in corr_options:
+        if scale_selection[var] == "Log":
+            custom_heatmap_data[var] = np.log10(custom_heatmap_data[var])
+    
+    custom_corr = custom_heatmap_data.corr()
+    
+    custom_labels = [f"{var}\n({scale_selection[var]})" for var in corr_options]
+    custom_corr.index = custom_labels
+    custom_corr.columns = custom_labels
+    
+    fig_custom = px.imshow(
+        custom_corr,
+        text_auto=True,
+        color_continuous_scale="RdBu_r",
+        zmin=-1,
+        zmax=1,
+        title="Matriz de Correlação - Escalas Customizadas",
+        labels=dict(x="Variáveis", y="Variáveis")
+    )
+    
+    st.plotly_chart(fig_custom)
 
-# region Aba Heatmap
+
 with aba_heatmap:
     st.subheader("Heatmap Multivariável")
 
@@ -290,19 +307,33 @@ with aba_heatmap:
         }
     }
 
-    x_category = st.selectbox("Categoria eixo X", list(axis_options.keys()))
-    x_level = st.selectbox("Nível eixo X", list(axis_options[x_category].keys()))
-
-    y_category = st.selectbox("Categoria eixo Y", list(axis_options.keys()))
-    y_level = st.selectbox("Nível eixo Y", list(axis_options[y_category].keys()))
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        x_category = st.selectbox("Categoria eixo X", list(axis_options.keys()))
+        x_level = st.selectbox("Nível eixo X", list(axis_options[x_category].keys()))
+    
+    with col2:
+        y_category = st.selectbox("Categoria eixo Y", list(axis_options.keys()))
+        y_level = st.selectbox("Nível eixo Y", list(axis_options[y_category].keys()))
 
     x_col = axis_options[x_category][x_level]
     y_col = axis_options[y_category][y_level]
 
-    metric_option = st.selectbox(
-        "Métrica",
-        most_important_cols + ["Contagem de Registros"]
-    )
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        metric_option = st.selectbox(
+            "Métrica",
+            most_important_cols + ["Contagem de Registros"]
+        )
+    
+    with col2:
+        metric_scale = st.selectbox(
+            "Escala da Métrica",
+            ["Normal", "Logarítmica"],
+            key="heatmap_metric_scale"
+        )
 
     heatmap_data = filtered_data.copy()
 
@@ -314,13 +345,19 @@ with aba_heatmap:
     else:
         pivot = heatmap_data.groupby([y_col, x_col])[metric_option] \
             .mean().unstack(fill_value=0)
+        
+        # Aplicar escala logarítmica se selecionada
+        if metric_scale == "Logarítmica":
+            # Substituir zeros por NaN antes de aplicar log
+            pivot = pivot.replace(0, np.nan)
+            pivot = np.log10(pivot)
 
     num_records = len(filtered_data)
 
     fig = px.imshow(
         pivot,
         color_continuous_scale="viridis",
-        title=f"{metric_option} por {y_level} vs {x_level}"
+        title=f"{metric_option} por {y_level} vs {x_level} ({metric_scale})"
     )
 
     fig.add_annotation(
